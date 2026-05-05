@@ -81,20 +81,12 @@
     <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
-        import { getDatabase, ref, set, onValue, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+        import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
-        // CONFIGURACIÓN DE FIREBASE
-        // Sustituye estos valores por los de tu consola de Firebase
-        const firebaseConfig = {
-        apiKey: "AIzaSyAroXIm40c0-5ouQCiRRuRqmyYebj8SYkA",
-        authDomain: "realtime-49e0a.firebaseapp.com",
-        databaseURL: "https://realtime-49e0a-default-rtdb.firebaseio.com",
-        projectId: "realtime-49e0a",
-        storageBucket: "realtime-49e0a.firebasestorage.app",
-        messagingSenderId: "196260004543",
-        appId: "1:196260004543:web:062a374e6125a6d3483c0a"
-        };
+        // CONFIGURACIÓN DE FIREBASE DINÁMICA
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         // Inicializar Firebase
         const app = initializeApp(firebaseConfig);
@@ -109,21 +101,35 @@
         };
         let activeFileId = null;
 
-        // Autenticación
+        // Autenticación con manejo de errores y reintentos
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Error de autenticación:", error);
+                document.getElementById('sync-status').textContent = "Error de Auth";
+            }
+        };
+
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 currentUser = user;
                 document.getElementById('user-display').textContent = `ID: ${user.uid.substring(0,8)}`;
                 syncFromCloud();
             } else {
-                signInAnonymously(auth);
+                initAuth();
             }
         });
 
-        // Cargar datos desde Realtime Database
+        // Cargar datos desde Realtime Database usando la ruta obligatoria de Canvas
         function syncFromCloud() {
             if (!currentUser) return;
-            const projectRef = ref(db, 'projects/' + currentUser.uid);
+            // Siguiendo la REGLA 1: /artifacts/{appId}/public/data/{collectionName}
+            const projectRef = ref(db, `artifacts/${appId}/public/data/projects/${currentUser.uid}`);
             
             onValue(projectRef, (snapshot) => {
                 const data = snapshot.val();
@@ -134,6 +140,9 @@
                 } else {
                     document.getElementById('sync-status').textContent = "Nuevo Proyecto";
                 }
+            }, (error) => {
+                console.error("Error de lectura:", error);
+                document.getElementById('sync-status').textContent = "Error de Lectura";
             });
         }
 
@@ -141,7 +150,6 @@
         window.saveProject = async function() {
             if (!currentUser) return;
             
-            // Actualizar el contenido del archivo activo antes de guardar
             if (activeFileId) {
                 const file = projectData.files.find(f => f.id === activeFileId);
                 if (file) file.content = document.getElementById('code-editor').innerText;
@@ -149,16 +157,16 @@
 
             document.getElementById('sync-status').textContent = "Guardando...";
             try {
-                await set(ref(db, 'projects/' + currentUser.uid), projectData);
+                const projectRef = ref(db, `artifacts/${appId}/public/data/projects/${currentUser.uid}`);
+                await set(projectRef, projectData);
                 document.getElementById('sync-status').textContent = "Guardado con éxito";
                 setTimeout(() => document.getElementById('sync-status').textContent = "Sincronizado", 2000);
             } catch (error) {
-                console.error(error);
-                alert("Error al guardar en Firebase");
+                console.error("Error al guardar:", error);
+                document.getElementById('sync-status').textContent = "Error al Guardar";
             }
         }
 
-        // Lógica de UI
         function updateUI() {
             const tree = document.getElementById('file-tree');
             tree.innerHTML = '';
@@ -184,7 +192,6 @@
         }
 
         function selectFile(id) {
-            // Guardar contenido del archivo previo
             if (activeFileId) {
                 const prevFile = projectData.files.find(f => f.id === activeFileId);
                 if (prevFile) prevFile.content = document.getElementById('code-editor').innerText;
@@ -240,7 +247,6 @@
             document.getElementById('sync-status').textContent = "Copiado";
         }
 
-        // Inicialización
         updateUI();
     </script>
 </body>
