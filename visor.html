@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CodeCanvas - IDE Pro</title>
+    <title>CodeCanvas - IDE Pro con Persistencia</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -61,9 +61,12 @@
             <div class="bg-indigo-600 p-1.5 rounded-lg">
                 <i data-lucide="layout" class="text-white w-5 h-5"></i>
             </div>
-            <h1 class="text-xl font-semibold text-gray-800 tracking-tight">CodeCanvas <span class="text-indigo-600">v2</span></h1>
+            <h1 class="text-xl font-semibold text-gray-800 tracking-tight">CodeCanvas <span class="text-indigo-600">v2.1</span></h1>
         </div>
-        <div id="status-msg" class="text-sm text-gray-400 font-medium">Esperando acción...</div>
+        <div class="flex items-center gap-4">
+            <button onclick="resetStorage()" class="text-xs text-red-500 hover:underline">Limpiar todo</button>
+            <div id="status-msg" class="text-sm text-gray-400 font-medium">Autoguardado activado</div>
+        </div>
     </header>
 
     <main class="flex flex-1 overflow-hidden">
@@ -124,19 +127,24 @@
     </main>
 
     <script>
-        // Modelo de datos del proyecto (Iniciamos con una estructura mínima)
-        let projectFiles = [
+        // Clave para localStorage
+        const STORAGE_KEY = 'codecanvas_project_v2';
+
+        // Estructura por defecto
+        const defaultProject = [
             {
                 id: 'root',
                 name: 'PROYECTO',
                 type: 'folder',
                 isOpen: true,
                 children: [
-                    { id: '1', name: 'index.html', type: 'file', content: '<!DOCTYPE html>\n<html>\n<body>\n  <h1>Hola</h1>\n</body>\n</html>' }
+                    { id: '1', name: 'index.html', type: 'file', content: '<!DOCTYPE html>\n<html>\n<body>\n  <h1>Hola Mundo</h1>\n  <p>Tus cambios se guardarán automáticamente.</p>\n</body>\n</html>' }
                 ]
             }
         ];
 
+        // Cargar datos persistidos o los por defecto
+        let projectFiles = JSON.parse(localStorage.getItem(STORAGE_KEY)) || defaultProject;
         let activeFile = null;
 
         const fileTreeEl = document.getElementById('file-tree');
@@ -145,6 +153,12 @@
         const currentFilenameEl = document.getElementById('current-filename');
         const statusMsg = document.getElementById('status-msg');
         const unsavedIndicator = document.getElementById('unsaved-indicator');
+
+        // Función para guardar en localStorage
+        function saveToStorage() {
+            if (activeFile) activeFile.content = codeEditor.innerText;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(projectFiles));
+        }
 
         // Generar el explorador
         function renderTree(files, container, level = 0) {
@@ -163,6 +177,7 @@
                     item.onclick = (e) => {
                         e.stopPropagation();
                         file.isOpen = !file.isOpen;
+                        saveToStorage();
                         refreshUI();
                     };
                 } else {
@@ -185,7 +200,6 @@
                 label.textContent = file.name;
                 label.className = "truncate flex-1";
 
-                // Botón de eliminar
                 const delBtn = document.createElement('button');
                 delBtn.className = "delete-btn p-1 hover:bg-red-100 text-red-500 rounded transition-colors";
                 delBtn.innerHTML = '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>';
@@ -212,7 +226,9 @@
         }
 
         function selectFile(file) {
-            if (activeFile) activeFile.content = codeEditor.innerText;
+            if (activeFile) {
+                activeFile.content = codeEditor.innerText;
+            }
 
             activeFile = file;
             currentFilenameEl.textContent = file.name;
@@ -221,8 +237,9 @@
             unsavedIndicator.classList.add('hidden');
             
             updateLineNumbers();
-            showStatus(`Editando ${file.name}`);
+            showStatus(`Archivo: ${file.name}`);
             refreshUI();
+            saveToStorage();
         }
 
         function updateLineNumbers() {
@@ -235,18 +252,18 @@
                 activeFile.content = codeEditor.innerText;
                 unsavedIndicator.classList.remove('hidden');
                 updateLineNumbers();
+                saveToStorage(); // Guardado automático mientras escribes
             }
         };
 
-        // Lógica de borrado
         function deleteItem(id) {
-            if (id === 'root') return; // No borrar la raíz
+            if (id === 'root') return;
 
             function findAndRemove(list) {
                 for (let i = 0; i < list.length; i++) {
                     if (list[i].id === id) {
                         if (list[i].type === 'folder' && list[i].children.length > 0) {
-                            if (!confirm(`La carpeta "${list[i].name}" tiene contenido. ¿Borrar todo?`)) return false;
+                            if (!confirm(`¿Borrar la carpeta "${list[i].name}" y todo su contenido?`)) return false;
                         }
                         if (activeFile && activeFile.id === id) {
                             activeFile = null;
@@ -263,14 +280,14 @@
             }
 
             if (findAndRemove(projectFiles)) {
-                showStatus("Eliminado correctamente");
+                saveToStorage();
+                showStatus("Eliminado");
                 refreshUI();
             }
         }
 
-        // Crear nuevo archivo/carpeta con soporte de ruta
         function promptNewItem() {
-            const path = prompt("Ruta del archivo (ej: js/main.js o index.css):");
+            const path = prompt("Ruta/Nombre (ej: css/styles.css):");
             if (!path) return;
 
             const parts = path.split('/');
@@ -285,7 +302,7 @@
                         id: Math.random().toString(36).substr(2, 9),
                         name: part,
                         type: isLast ? 'file' : 'folder',
-                        content: isLast ? `// Archivo: ${part}\n` : '',
+                        content: isLast ? `/* Nuevo archivo: ${part} */\n` : '',
                         isOpen: true,
                         children: isLast ? null : []
                     };
@@ -298,11 +315,8 @@
                     currentLevel = existing.children;
                 }
             });
+            saveToStorage();
             refreshUI();
-        }
-
-        function triggerImport() {
-            document.getElementById('file-import').click();
         }
 
         function handleFileImport(event) {
@@ -318,9 +332,19 @@
                 };
                 projectFiles[0].children.push(newFile);
                 selectFile(newFile);
+                saveToStorage();
                 showStatus('Importado');
             };
             reader.readAsText(file);
+        }
+
+        function triggerImport() { document.getElementById('file-import').click(); }
+
+        function resetStorage() {
+            if (confirm("¿Seguro que quieres borrar todos tus archivos locales? No se puede deshacer.")) {
+                localStorage.removeItem(STORAGE_KEY);
+                location.reload();
+            }
         }
 
         document.getElementById('btn-download').onclick = () => {
@@ -331,7 +355,6 @@
             a.href = url;
             a.download = activeFile.name;
             a.click();
-            showStatus('Descargado');
         };
 
         document.getElementById('btn-copy').onclick = () => {
@@ -346,15 +369,11 @@
         };
 
         function showStatus(text) {
+            const old = statusMsg.textContent;
             statusMsg.textContent = text;
-            statusMsg.classList.add('text-indigo-600');
-            setTimeout(() => {
-                statusMsg.textContent = activeFile ? `Editando ${activeFile.name}` : "Esperando acción...";
-                statusMsg.classList.remove('text-indigo-600');
-            }, 2500);
+            setTimeout(() => { statusMsg.textContent = old; }, 2000);
         }
 
-        // Manejo de Tabulación
         codeEditor.addEventListener('keydown', (e) => {
             if (e.key === 'Tab') {
                 e.preventDefault();
